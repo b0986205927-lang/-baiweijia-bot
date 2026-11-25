@@ -6,21 +6,26 @@ const config = {
   channelSecret: process.env.CHANNEL_SECRET,
 };
 
+// 老闆娘的 LINE User ID（在 LINE 傳「查ID」取得後，填進 Render 環境變數 OWNER_USER_ID）
 const OWNER_USER_ID = process.env.OWNER_USER_ID || '';
-const BANK_INFO = '銀行代號：807（永豐）\n帳號：159—018—00016117';
-const TWQR_INFO = 'TWQR 掃碼／行動銀行轉帳：同上方帳號(或掃描店面 TWQR 立牌)';
-const LINEPAY_PERSONAL_INFO = 'LINE Pay 個人轉帳：即將開放，目前請先使用上方銀行轉帳 / TWQR';
 
+// 收款資訊（可依新樂百貨實際帳號修改）
+const BANK_INFO = '銀行代號：807（永豐）\n帳號：159—018—00016117';
+const TWQR_INFO = 'TWQR 掃碼／行動銀行轉帳：同上方帳號（或掃描店面 TWQR 立牌）';
+const LINEPAY_PERSONAL_INFO = 'LINE Pay / iPASS MONEY 個人轉帳：請掃描老闆娘收款碼或轉帳後點擊下方回報末五碼';
 
 const client = new line.Client(config);
 const app = express();
 
+// ==========================================
+// 【新樂百貨商品清單】平板開 GitHub 可直接修改價格與品項
+// ==========================================
 const menuDB = [
-  { item_id: 'M01', category: '主食便當區', name: '招牌排骨飯', price: 110, is_sold_out: false, need_drink_options: false },
-  { item_id: 'M02', category: '主食便當區', name: '香酥雞腿飯', price: 120, is_sold_out: false, need_drink_options: false },
-  { item_id: 'S01', category: '單點快餐區', name: '黃金甜不辣', price: 50, is_sold_out: false, need_drink_options: false },
-  { item_id: 'D01', category: '飲料甜品區', name: '古早味紅茶', price: 30, is_sold_out: false, need_drink_options: true },
-  { item_id: 'D02', category: '飲料甜品區', name: '鮮奶茶', price: 50, is_sold_out: false, need_drink_options: true },
+  { item_id: 'L01', category: '女性無痕內衣', name: '零感無痕內衣（膚色-M）', price: 390, is_sold_out: false },
+  { item_id: 'L02', category: '女性無痕內衣', name: '零感無痕內衣（黑色-L）', price: 390, is_sold_out: false },
+  { item_id: 'L03', category: '女性親膚內褲', name: '冰絲無痕女三角褲（3件組-均碼）', price: 250, is_sold_out: false },
+  { item_id: 'M01', category: '男性舒適內褲', name: '純棉透氣男平口褲（黑色-L）', price: 199, is_sold_out: false },
+  { item_id: 'M02', category: '男性舒適內褲', name: '純棉透氣男平口褲（深藍-XL）', price: 199, is_sold_out: false },
 ];
 
 const cartDB = new Map();
@@ -103,14 +108,15 @@ function sendMenuFlex(replyToken) {
 
   return client.replyMessage(replyToken, {
     type: 'flex',
-    altText: '今日菜單',
+    altText: '新樂百貨商品目錄',
     contents: {
       type: 'bubble',
       body: {
         type: 'box',
         layout: 'vertical',
         contents: [
-          { type: 'text', text: '點餐菜單', weight: 'bold', size: 'lg', color: '#1DB446' },
+          { type: 'text', text: '新樂百貨｜精選內衣褲', weight: 'bold', size: 'lg', color: '#1DB446' },
+          { type: 'text', text: '滿 $500 享現場取貨付現金！', size: 'xs', color: '#E63946', margin: 'xs' },
           { type: 'separator', margin: 'md' },
         ]
           .concat(itemBoxes)
@@ -123,7 +129,7 @@ function sendMenuFlex(replyToken) {
               height: 'sm',
               action: {
                 type: 'postback',
-                label: '前往選擇取餐時間',
+                label: '前往選擇取貨時間',
                 data: 'action=checkout_time',
               },
             },
@@ -136,6 +142,12 @@ function sendMenuFlex(replyToken) {
 function sendCartFlex(replyToken, userId, headerTitle) {
   const title = headerTitle || '目前購物車';
   const summary = getCartSummary(userId);
+  const diff500 = 500 - summary.totalAmount;
+  const promoHint =
+    diff500 > 0
+      ? '再湊 $' + diff500 + ' 即可享滿 $500 現場付現金！'
+      : '已滿 $500！結帳可選擇現場付現金（免先付訂金）';
+
   return client.replyMessage(replyToken, {
     type: 'flex',
     altText: title,
@@ -149,6 +161,7 @@ function sendCartFlex(replyToken, userId, headerTitle) {
           { type: 'separator', margin: 'md' },
           { type: 'text', text: summary.summaryText, size: 'sm', margin: 'md', wrap: true },
           { type: 'text', text: '總金額：$' + summary.totalAmount, weight: 'bold', size: 'md', margin: 'md' },
+          { type: 'text', text: promoHint, size: 'xs', color: '#E63946', margin: 'xs', wrap: true },
           {
             type: 'button',
             style: 'primary',
@@ -157,7 +170,7 @@ function sendCartFlex(replyToken, userId, headerTitle) {
             height: 'sm',
             action: {
               type: 'postback',
-              label: '選擇取餐時間',
+              label: '選擇取貨時間',
               data: 'action=checkout_time',
             },
           },
@@ -183,11 +196,11 @@ function sendPickupTimeFlex(replyToken, userId) {
   if (!summary.list.length || summary.totalAmount <= 0) {
     return client.replyMessage(replyToken, {
       type: 'text',
-      text: '您的購物車目前是空的喔！請輸入「我要點餐」選購餐點。',
+      text: '您的購物車目前是空的喔！請輸入「我要選購」挑選商品。',
     });
   }
 
-  const times = ['15分鐘後', '30分鐘後', '45分鐘後', '1小時後'];
+  const times = ['今天下午取貨', '今天晚上取貨', '明天取貨', '預約店面自取'];
   const buttons = times.map(function (t) {
     return {
       type: 'button',
@@ -205,14 +218,14 @@ function sendPickupTimeFlex(replyToken, userId) {
 
   return client.replyMessage(replyToken, {
     type: 'flex',
-    altText: '選擇取餐時間',
+    altText: '選擇取貨時間',
     contents: {
       type: 'bubble',
       body: {
         type: 'box',
         layout: 'vertical',
         contents: [
-          { type: 'text', text: '請選擇預計取餐時間', weight: 'bold', size: 'lg', color: '#2A9D8F' },
+          { type: 'text', text: '請選擇預計取貨時間', weight: 'bold', size: 'lg', color: '#2A9D8F' },
           { type: 'text', text: '目前訂單金額：$' + summary.totalAmount, size: 'sm', margin: 'sm' },
         ].concat(buttons),
       },
@@ -221,10 +234,60 @@ function sendPickupTimeFlex(replyToken, userId) {
 }
 
 function sendPaymentMethodFlex(replyToken, pickupTime, totalAmount, isOver500) {
-  const overFlag = isOver500 ? '1' : '0';
   const noteText = isOver500
-    ? '訂單金額滿 $500，轉帳可選擇訂金一半或一次付清。'
-    : '請選擇您的付款方式：';
+    ? '訂單滿 $500，可選擇「現場付現金」（免先付訂金）或先轉帳。'
+    : '訂單未滿 $500，請先完成轉帳並回報帳號末五碼（滿 $500 可現場付現）。';
+
+  const paymentButtons = [
+    {
+      type: 'button',
+      style: 'primary',
+      color: '#2A9D8F',
+      margin: 'md',
+      height: 'sm',
+      action: {
+        type: 'postback',
+        label: '銀行轉帳 / TWQR',
+        data:
+          'action=pay_method&time=' +
+          encodeURIComponent(pickupTime) +
+          '&method=' +
+          encodeURIComponent('銀行轉帳 / TWQR'),
+      },
+    },
+    {
+      type: 'button',
+      style: 'primary',
+      color: '#06C755',
+      margin: 'sm',
+      height: 'sm',
+      action: {
+        type: 'postback',
+        label: 'LINE Pay 個人轉帳',
+        data:
+          'action=pay_method&time=' +
+          encodeURIComponent(pickupTime) +
+          '&method=' +
+          encodeURIComponent('LINE Pay 個人轉帳'),
+      },
+    },
+  ];
+
+  // 滿 500 元才開放「現場付現金」按鈕（無先付一半訂金）
+  if (isOver500) {
+    paymentButtons.push({
+      type: 'button',
+      style: 'primary',
+      color: '#FF6B6B',
+      margin: 'sm',
+      height: 'sm',
+      action: {
+        type: 'postback',
+        label: '現場付現金（滿500專屬）',
+        data: 'action=pay_cash&time=' + encodeURIComponent(pickupTime),
+      },
+    });
+  }
 
   return client.replyMessage(replyToken, {
     type: 'flex',
@@ -236,125 +299,19 @@ function sendPaymentMethodFlex(replyToken, pickupTime, totalAmount, isOver500) {
         layout: 'vertical',
         contents: [
           { type: 'text', text: '選擇付款方式', weight: 'bold', size: 'lg', color: '#E63946' },
-          { type: 'text', text: '取餐時間：' + pickupTime + '｜總金額：$' + totalAmount, size: 'sm', margin: 'sm', wrap: true },
+          { type: 'text', text: '取貨時間：' + pickupTime + '｜總金額：$' + totalAmount, size: 'sm', margin: 'sm', wrap: true },
           { type: 'text', text: noteText, size: 'xs', color: '#666666', margin: 'xs', wrap: true },
-          {
-            type: 'button',
-            style: 'primary',
-            color: '#2A9D8F',
-            margin: 'md',
-            height: 'sm',
-            action: {
-              type: 'postback',
-              label: '銀行轉帳 / TWQR',
-              data:
-                'action=pay_method&time=' +
-                encodeURIComponent(pickupTime) +
-                '&method=' +
-                encodeURIComponent('銀行轉帳 / TWQR') +
-                '&over500=' +
-                overFlag,
-            },
-          },
-          {
-            type: 'button',
-            style: 'primary',
-            color: '#06C755',
-            margin: 'sm',
-            height: 'sm',
-            action: {
-              type: 'postback',
-              label: 'LINE Pay 個人轉帳',
-              data:
-                'action=pay_method&time=' +
-                encodeURIComponent(pickupTime) +
-                '&method=' +
-                encodeURIComponent('LINE Pay 個人轉帳') +
-                '&over500=' +
-                overFlag,
-            },
-          },
-          {
-            type: 'button',
-            style: 'secondary',
-            margin: 'sm',
-            height: 'sm',
-            action: {
-              type: 'postback',
-              label: '現場付款',
-              data: 'action=pay_cash&time=' + encodeURIComponent(pickupTime),
-            },
-          },
-        ],
+        ].concat(paymentButtons),
       },
     },
   });
 }
 
-function sendTransferOptionsFlex(replyToken, pickupTime, totalAmount, method, isOver500) {
-  const deposit = Math.ceil(totalAmount * 0.5);
+function sendTransferOptionsFlex(replyToken, pickupTime, totalAmount, method) {
   const detailText =
     method === 'LINE Pay 個人轉帳'
       ? LINEPAY_PERSONAL_INFO
       : BANK_INFO + '\n' + TWQR_INFO;
-
-  const amountText = isOver500
-    ? '• 訂金一半：$' + deposit + '\n• 全部一次付清：$' + totalAmount
-    : '• 應付金額：$' + totalAmount;
-
-  const buttons = isOver500
-    ? [
-        {
-          type: 'button',
-          style: 'primary',
-          color: '#FF6B6B',
-          margin: 'md',
-          height: 'sm',
-          action: {
-            type: 'postback',
-            label: '訂金一半 $' + deposit,
-            data:
-              'action=ask_last5&time=' +
-              encodeURIComponent(pickupTime) +
-              '&label=' +
-              encodeURIComponent(method + ' - 訂金一半 $' + deposit),
-          },
-        },
-        {
-          type: 'button',
-          style: 'primary',
-          color: '#2A9D8F',
-          margin: 'sm',
-          height: 'sm',
-          action: {
-            type: 'postback',
-            label: '全部付清 $' + totalAmount,
-            data:
-              'action=ask_last5&time=' +
-              encodeURIComponent(pickupTime) +
-              '&label=' +
-              encodeURIComponent(method + ' - 全部付清 $' + totalAmount),
-          },
-        },
-      ]
-    : [
-        {
-          type: 'button',
-          style: 'primary',
-          color: '#2A9D8F',
-          margin: 'md',
-          height: 'sm',
-          action: {
-            type: 'postback',
-             label: '已完成轉帳 $' + totalAmount,
-                        data:
-              'action=ask_last5&time=' +
-              encodeURIComponent(pickupTime) +
-              '&label=' +
-              encodeURIComponent(method + ' - 已付清 $' + totalAmount),
-          },
-        },
-      ];
 
   return client.replyMessage(replyToken, {
     type: 'flex',
@@ -368,23 +325,38 @@ function sendTransferOptionsFlex(replyToken, pickupTime, totalAmount, method, is
           { type: 'text', text: method, weight: 'bold', size: 'lg', color: '#E63946' },
           {
             type: 'text',
-            text: '訂單總額：$' + totalAmount + '\n' + amountText + '\n\n' + detailText,
+            text: '應付總金額：$' + totalAmount + '\n\n' + detailText,
             size: 'sm',
             margin: 'md',
             wrap: true,
           },
-        ].concat(buttons),
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#2A9D8F',
+            margin: 'md',
+            height: 'sm',
+            action: {
+              type: 'postback',
+              label: '已完成轉帳 $' + totalAmount + '（回報末五碼）',
+              data:
+                'action=ask_last5&time=' +
+                encodeURIComponent(pickupTime) +
+                '&label=' +
+                encodeURIComponent(method + ' - 已付清 $' + totalAmount),
+            },
+          },
+        ],
       },
     },
   });
 }
-
 function handleDepositCheck(event, userId, pickupTime) {
   const summary = getCartSummary(userId);
   if (!summary.list.length || summary.totalAmount <= 0) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '您的購物車目前是空的喔！請輸入「我要點餐」選購餐點。',
+      text: '您的購物車目前是空的喔！請輸入「我要選購」挑選商品。',
     });
   }
   return sendPaymentMethodFlex(event.replyToken, pickupTime, summary.totalAmount, summary.totalAmount >= 500);
@@ -395,7 +367,7 @@ async function finalizeOrder(event, userId, pickupTime, paymentStatus) {
   if (!summary.list.length || summary.totalAmount <= 0) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '您的購物車目前是空的喔！請輸入「我要點餐」選購餐點。',
+      text: '您的購物車目前是空的喔！請輸入「我要選購」挑選商品。',
     });
   }
 
@@ -433,13 +405,13 @@ async function finalizeOrder(event, userId, pickupTime, paymentStatus) {
     await client.pushMessage(OWNER_USER_ID, {
       type: 'text',
       text:
-        '新訂單！' +
+        '【新樂百貨新訂單】' +
         orderId +
         '\n顧客：' +
         userName +
-        '\n取餐時間：' +
+        '\n取貨時間：' +
         pickupTime +
-        '\n付款狀態：' +
+        '\n付款方式：' +
         paymentStatus +
         '\n---\n' +
         summary.summaryText +
@@ -450,20 +422,28 @@ async function finalizeOrder(event, userId, pickupTime, paymentStatus) {
 
   return client.replyMessage(event.replyToken, {
     type: 'flex',
-    altText: '訂單成立通知',
+    altText: '新樂百貨訂單成立通知',
     contents: {
       type: 'bubble',
       body: {
         type: 'box',
         layout: 'vertical',
         contents: [
-          { type: 'text', text: '訂單成立！', weight: 'bold', size: 'lg', color: '#1DB446' },
+          { type: 'text', text: '新樂百貨｜訂單成立！', weight: 'bold', size: 'lg', color: '#1DB446' },
           { type: 'text', text: '單號：' + orderId, size: 'sm', margin: 'md', weight: 'bold' },
-          { type: 'text', text: '預計取餐：' + pickupTime, size: 'sm', margin: 'xs' },
-          { type: 'text', text: '付款方式：' + paymentStatus, size: 'sm', margin: 'xs' },
+          { type: 'text', text: '預計取貨：' + pickupTime, size: 'sm', margin: 'xs' },
+          { type: 'text', text: '付款方式：' + paymentStatus, size: 'sm', margin: 'xs', wrap: true },
           { type: 'separator', margin: 'md' },
           { type: 'text', text: summary.summaryText, size: 'sm', margin: 'md', wrap: true },
           { type: 'text', text: '總金額：$' + summary.totalAmount, weight: 'bold', size: 'md', margin: 'md' },
+          {
+            type: 'text',
+            text: '※ 貼身衣物屬個人衛生用品，售出後恕不退換，感謝您的支持。',
+            size: 'xs',
+            color: '#888888',
+            margin: 'md',
+            wrap: true,
+          },
           {
             type: 'button',
             style: 'secondary',
@@ -503,7 +483,7 @@ async function handleEvent(event) {
       if (!item) {
         return client.replyMessage(event.replyToken, {
           type: 'text',
-          text: '不好意思，這道餐點暫時售完囉！',
+          text: '不好意思，這款商品暫時售完囉！',
         });
       }
       addToCart(userId, item, '');
@@ -515,7 +495,7 @@ async function handleEvent(event) {
       pendingDepositDB.delete(userId);
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: '購物車已清空！輸入「我要點餐」可重新點餐。',
+        text: '購物車已清空！輸入「我要選購」可重新挑選商品。',
       });
     }
 
@@ -524,36 +504,35 @@ async function handleEvent(event) {
     }
 
     if (action === 'select_pickup') {
-      const pickupTime = params.get('time') || '15分鐘後';
+      const pickupTime = params.get('time') || '今天下午取貨';
       return handleDepositCheck(event, userId, pickupTime);
     }
 
     if (action === 'pay_cash') {
-      const pickupTime = params.get('time') || '15分鐘後';
-      return finalizeOrder(event, userId, pickupTime, '現場付');
+      const pickupTime = params.get('time') || '今天下午取貨';
+      return finalizeOrder(event, userId, pickupTime, '現場付現金（滿500）');
     }
 
     if (action === 'pay_method') {
-      const pickupTime = params.get('time') || '15分鐘後';
+      const pickupTime = params.get('time') || '今天下午取貨';
       const method = params.get('method') || '銀行轉帳 / TWQR';
-      const isOver500 = params.get('over500') === '1';
       const summary = getCartSummary(userId);
       if (!summary.list.length || summary.totalAmount <= 0) {
         return client.replyMessage(event.replyToken, {
           type: 'text',
-          text: '您的購物車目前是空的喔！請輸入「我要點餐」選購餐點。',
+          text: '您的購物車目前是空的喔！請輸入「我要選購」挑選商品。',
         });
       }
-      return sendTransferOptionsFlex(event.replyToken, pickupTime, summary.totalAmount, method, isOver500);
+      return sendTransferOptionsFlex(event.replyToken, pickupTime, summary.totalAmount, method);
     }
 
     if (action === 'ask_last5') {
-      const pickupTime = params.get('time') || '15分鐘後';
+      const pickupTime = params.get('time') || '今天下午取貨';
       const payLabel = params.get('label') || '已轉帳';
       pendingDepositDB.set(userId, { pickupTime: pickupTime, payLabel: payLabel });
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: '請直接輸入您的「轉帳帳號末五碼」（例如：12345），方便店家核對【' + payLabel + '】款項。',
+        text: '請直接輸入您的「轉帳帳號末五碼」（例如：12345），方便新樂百貨核對【' + payLabel + '】款項。',
       });
     }
 
@@ -564,10 +543,16 @@ async function handleEvent(event) {
       });
       if (idx !== -1) {
         ordersDB.splice(idx, 1);
+        if (OWNER_USER_ID) {
+          await client.pushMessage(OWNER_USER_ID, {
+            type: 'text',
+            text: '【訂單取消通知】單號 ' + cancelId + ' 已被顧客取消。',
+          });
+        }
       }
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: '訂單 ' + cancelId + ' 已為您取消！若需重新點餐請輸入「我要點餐」。',
+        text: '訂單 ' + cancelId + ' 已為您取消！若需重新選購請輸入「我要選購」。',
       });
     }
 
@@ -576,6 +561,97 @@ async function handleEvent(event) {
 
   if (event.type === 'message' && event.message.type === 'text') {
     const userText = event.message.text.trim();
+
+    if (userText === '查ID' || userText === '查id') {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '您的 LINE User ID 為：\n' + userId + '\n\n請將這串代碼貼到 Render 的 OWNER_USER_ID 環境變數中，即可接收新訂單通知並使用改價指令。',
+      });
+    }
+
+    if (userText.startsWith('改價 ')) {
+      if (OWNER_USER_ID && userId !== OWNER_USER_ID) {
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: '抱歉，只有老闆娘帳號才能使用改價指令喔！',
+        });
+      }
+      const parts = userText.split(/\s+/);
+      if (parts.length < 3) {
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: '改價格式錯誤！請輸入：\n改價 商品編號 新價格\n例如：改價 L01 350\n（輸入「價目表」可查看所有商品編號）',
+        });
+      }
+      const target = parts[1];
+      const newPrice = parseInt(parts[2], 10);
+      if (isNaN(newPrice) || newPrice <= 0) {
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: '價格請輸入大於 0 的數字，例如：改價 L01 350',
+        });
+      }
+      const targetItem = menuDB.find(function (m) {
+        return m.item_id.toUpperCase() === target.toUpperCase() || m.name.includes(target);
+      });
+      if (!targetItem) {
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: '找不到商品「' + target + '」，請輸入「價目表」確認編號與名稱。',
+        });
+      }
+      const oldPrice = targetItem.price;
+      targetItem.price = newPrice;
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text:
+          '價格已即時更新！\n商品：【' +
+          targetItem.item_id +
+          '】' +
+          targetItem.name +
+          '\n原價：$' +
+          oldPrice +
+          ' ➔ 新價格：$' +
+          newPrice,
+      });
+    }
+
+    if (userText.startsWith('下架 ') || userText.startsWith('上架 ')) {
+      if (OWNER_USER_ID && userId !== OWNER_USER_ID) {
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: '抱歉，只有老闆娘帳號才能調整上架狀態喔！',
+        });
+      }
+      const isOff = userText.startsWith('下架 ');
+      const target = userText.slice(3).trim();
+      const targetItem = menuDB.find(function (m) {
+        return m.item_id.toUpperCase() === target.toUpperCase() || m.name.includes(target);
+      });
+      if (!targetItem) {
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: '找不到商品「' + target + '」，請輸入「價目表」確認編號。',
+        });
+      }
+            targetItem.is_sold_out = isOff;
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '已更新狀態：【' + targetItem.item_id + '】' + targetItem.name + ' 目前為「' + (isOff ? '已售完' : '販售中') + '」',
+      });
+    }
+
+    if (userText === '價目表') {
+      const listText = menuDB
+        .map(function (m) {
+          return '【' + m.item_id + '】' + m.name + '：$' + m.price + (m.is_sold_out ? '（已售完）' : '');
+        })
+        .join('\n');
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '新樂百貨目前價目表：\n' + listText + '\n\n老闆改價請輸入：改價 編號 新價格（例：改價 L01 350）',
+      });
+    }
 
     if (pendingDepositDB.has(userId)) {
       if (!/^\d{5}$/.test(userText)) {
@@ -589,7 +665,7 @@ async function handleEvent(event) {
       return finalizeOrder(event, userId, pending.pickupTime, pending.payLabel + ' (末五碼：' + userText + ')');
     }
 
-    if (userText === '我要點餐') {
+    if (userText === '我要選購' || userText === '我要點餐' || userText === '商品目錄') {
       return sendMenuFlex(event.replyToken);
     }
 
@@ -608,7 +684,7 @@ async function handleEvent(event) {
       if (myOrders.length === 0) {
         return client.replyMessage(event.replyToken, {
           type: 'text',
-          text: '您目前還沒有成立的訂單喔！想點餐請輸入「我要點餐」。',
+          text: '您目前還沒有成立的訂單喔！想挑選商品請輸入「我要選購」。',
         });
       }
       const latest = myOrders[myOrders.length - 1];
@@ -630,8 +706,8 @@ async function handleEvent(event) {
             contents: [
               { type: 'text', text: '您的最新訂單', weight: 'bold', size: 'lg', color: '#1DB446' },
               { type: 'text', text: '單號：' + latest.order_id, size: 'sm', margin: 'md', weight: 'bold' },
-              { type: 'text', text: '預計取餐：' + latest.pickup_time, size: 'sm', margin: 'xs' },
-              { type: 'text', text: '付款方式：' + latest.payment_status, size: 'sm', margin: 'xs' },
+              { type: 'text', text: '預計取貨：' + latest.pickup_time, size: 'sm', margin: 'xs' },
+              { type: 'text', text: '付款方式：' + latest.payment_status, size: 'sm', margin: 'xs', wrap: true },
               { type: 'separator', margin: 'md' },
               { type: 'text', text: itemsText, size: 'sm', margin: 'md', wrap: true },
               { type: 'text', text: '總金額：$' + latest.total_amount, weight: 'bold', size: 'md', margin: 'md' },
